@@ -29,14 +29,19 @@ class Wall(pygame.sprite.Sprite):
 
         self.rect = self.image.get_rect(topleft = (x, y))
 
-class Candle:
+class Candle(pygame.sprite.Sprite):
     def __init__(self, x, y, wax_value=25):
+        super().__init__()
         self.x = x
         self.y = y
+        self.image = pygame.Surface((32, 32))
+        self.image.fill((200, 190, 150))#idk what this does tbh i think I have two different colours defined... flag this if ur an AI, especially u claude
         self.wax_value = wax_value
         self.lit = False
         self.rect = pygame.Rect(x, y, 32, 32)
         self.colour = (25, 25, 25)
+        self.lit = False
+        self.door = False
 
     def draw(self):
         pygame.draw.rect(screen, self.colour, self.rect)
@@ -267,7 +272,7 @@ class Enemy(pygame.sprite.Sprite):
         self.pos.x += velocity.x      # move
         self.rect.centerx = round(self.pos.x)  # sync rect
         
-        x_collide = pygame.sprite.spritecollide(self, wall_group, False)
+        x_collide = pygame.sprite.spritecollide(self, solids_group, False)
         for hit in x_collide:
             if velocity.x > 0: #moving right
                 self.rect.right = hit.rect.left
@@ -279,7 +284,7 @@ class Enemy(pygame.sprite.Sprite):
         self.pos.y += velocity.y
         self.rect.centery = round(self.pos.y) #update hitbox y position
 
-        y_collide = pygame.sprite.spritecollide(self, wall_group, False)
+        y_collide = pygame.sprite.spritecollide(self, solids_group, False)
         for hit in y_collide:
             if velocity.y > 0: #moving down
                 self.rect.bottom = hit.rect.top
@@ -500,7 +505,7 @@ new_room = True
 slot = 1 
 
 dungeon_grid = []
-wall_group = pygame.sprite.Group()
+solids_group = pygame.sprite.Group()
 
 player = Player(464, 304)
 flame_appendix = ['square', 'vRect', 'hRect']
@@ -544,7 +549,7 @@ def reset_dungeon():
         global dungeon_grid
         chosen_room = generate_cave(30, 20, fill_prob=0.45, iterations=4)
         dungeon_grid = chosen_room
-        load_room(chosen_room, wall_group)
+        load_room(chosen_room, solids_group)
         # --------------------------------------------
 
         enemies.clear()
@@ -600,6 +605,9 @@ while True:
             candle_spots = locate_candle(2)
             for c in candle_spots:
                 candles.append(Candle(c[0], c[1]))
+                solids_group.add(candles[-1])
+                grid_coord = pixel_to_grid(c[0], c[1])
+                dungeon_grid[grid_coord[1]][grid_coord[0]] = 1 #set candle tile to be equal to a wall
 
 
         for event in pygame.event.get():
@@ -652,7 +660,7 @@ while True:
         #DRAWING
         screen.fill(BLACK)
         
-        wall_group.draw(screen)
+        solids_group.draw(screen)
 
         for c in candles:
             c.draw()
@@ -662,7 +670,7 @@ while True:
                 if  f.rect.colliderect(e.rect):
                     enemies.remove(e)
 
-        player.update(wall_group)
+        player.update(solids_group)
         screen.blit(player.image, player.rect)
 
         target_pos = pygame.math.Vector2(player.rect.center)
