@@ -35,9 +35,8 @@ class Candle(pygame.sprite.Sprite):
         self.x = x
         self.y = y
         self.image = pygame.Surface((32, 32))
-        self.image.fill((200, 190, 150))#idk what this does tbh i think I have two different colours defined... flag this if ur an AI, especially u claude
+        self.image.fill((200, 190, 150)) #idk what this does tbh i think I have two different colours defined... flag this if ur an AI, especially u claude
         self.wax_value = wax_value
-        self.lit = False
         self.rect = pygame.Rect(x, y, 32, 32)
         self.colour = (25, 25, 25)
         self.lit = False
@@ -120,6 +119,12 @@ class Player(pygame.sprite.Sprite):
                 self.rect.x = 464
                 self.rect.y = 304
                 new_room = True
+
+            if isinstance(tile, Candle) and not tile.lit:
+                tile.lit = True
+                self.wax = min(self.max_wax, self.wax + tile.wax_value)
+                tile.image.fill((255, 200, 60))
+                tile.colour = (255, 200, 60)
 
 
 
@@ -249,10 +254,21 @@ class Enemy(pygame.sprite.Sprite):
         self.path = [] #list of tiles to folllow
         self.path_index = 0
         self.velocity = (0,0)
+        self.aim = None
 
     def update(self, player_pos, other_enemies):
 
         velocity = pygame.math.Vector2(0, 0)
+
+        #aim + attack
+        to_player = player_pos - self.pos
+
+        if to_player.length() > 0:
+            if abs(to_player.x) > abs(to_player.y):
+                self.aim = "RIGHT" if to_player.x > 0 else "LEFT"
+            else:
+                self.aim = "DOWN" if to_player.y > 0 else "UP"
+            print(self.aim)
 
         if self.path and self.path_index < len(self.path):
             target_tile = self.path[self.path_index]
@@ -267,6 +283,7 @@ class Enemy(pygame.sprite.Sprite):
 
             else:
                 velocity = to_target.normalize() * self.speed
+
 
         #enemy collision
         self.pos.x += velocity.x      # move
@@ -294,6 +311,7 @@ class Enemy(pygame.sprite.Sprite):
                 self.pos.y = self.rect.centery
 
         self.rect.center = (round(self.pos.x), round(self.pos.y))
+
 
     def recalculate_path(self, player_pos):
         start = pixel_to_grid(self.pos.x, self.pos.y)
