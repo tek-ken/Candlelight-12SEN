@@ -255,6 +255,8 @@ class Enemy(pygame.sprite.Sprite):
         self.path_index = 0
         self.velocity = (0,0)
         self.aim = None
+        self.range = 60
+        self.attack_cooldown = 0
 
     def update(self, player_pos, other_enemies):
 
@@ -268,7 +270,13 @@ class Enemy(pygame.sprite.Sprite):
                 self.aim = "RIGHT" if to_player.x > 0 else "LEFT"
             else:
                 self.aim = "DOWN" if to_player.y > 0 else "UP"
-            print(self.aim)
+
+        if self.attack_cooldown > 0:
+            self.attack_cooldown -= 1
+
+        if to_player.length() < self.range and self.attack_cooldown == 0:
+            self.attack()
+
 
         if self.path and self.path_index < len(self.path):
             target_tile = self.path[self.path_index]
@@ -312,6 +320,9 @@ class Enemy(pygame.sprite.Sprite):
 
         self.rect.center = (round(self.pos.x), round(self.pos.y))
 
+    def attack(self):
+        enemy_attacks.append(EnemyAttack(self, self.aim))
+        self.attack_cooldown = 90
 
     def recalculate_path(self, player_pos):
         start = pixel_to_grid(self.pos.x, self.pos.y)
@@ -319,6 +330,44 @@ class Enemy(pygame.sprite.Sprite):
         self.path = find_path(start, goal)
         self.path_index = 1 #start new path from the beginning
 
+class EnemyAttack:
+    def __init__(self, enemy, direction, duration=15, damage=10):
+
+        self.direction = direction
+        self.duration = duration
+        self.damage = damage
+        self.enemy = enemy
+        self.direction = direction
+        self.has_hit = False        # so one swipe can't hit twice
+        self.colour = (200, 40, 40)
+
+        # size: long across the swipe, thin along it
+        if direction in ("UP", "DOWN"):
+            self.rect = pygame.Rect(0, 0, 40, 24)
+        else:
+            self.rect = pygame.Rect(0, 0, 24, 40)
+
+
+    def update(self):
+        self.duration -= 1
+
+        buffer = 4
+        if self.direction == "UP":
+            self.rect.centerx = self.enemy.rect.centerx
+            self.rect.bottom = self.enemy.rect.top - buffer
+        elif self.direction == "DOWN":
+            self.rect.centerx = self.enemy.rect.centerx
+            self.rect.top = self.enemy.rect.bottom + buffer
+        elif self.direction == "LEFT":
+            self.rect.centery = self.enemy.rect.centery
+            self.rect.right = self.enemy.rect.left - buffer
+        elif self.direction == "RIGHT":
+            self.rect.centery = self.enemy.rect.centery
+            self.rect.left = self.enemy.rect.right + buffer
+
+
+    def draw(self, surface):
+        pygame.draw.rect(surface, self.colour, self.rect)
 
 
 # --- CELLULAR AUTOMATA GENERATION FUNCTIONS ---
@@ -529,6 +578,7 @@ player = Player(464, 304)
 flame_appendix = ['square', 'vRect', 'hRect']
 flames = []
 enemies = []
+enemy_attacks = []
 candles = []
 candle_spots = []
 SPELL_DATA = [
@@ -691,6 +741,7 @@ while True:
         player.update(solids_group)
         screen.blit(player.image, player.rect)
 
+        #Enemy loops
         target_pos = pygame.math.Vector2(player.rect.center)
         for e in enemies:
 
@@ -699,6 +750,18 @@ while True:
 
             e.update(target_pos, enemies)
             screen.blit(e.image, e.rect)
+
+        for atk in enemy_attacks[:]:
+            atk.update()
+            atk.draw(screen)
+
+            if not atk.has_hit and atk.rect.colliderect(player.rect):
+                atk.has_hit = True
+                player.wax -= atk.damage
+
+            if atk.duration <= 0:
+                enemy_attacks.remove(atk)
+    
         
         if frame % 60 == 0 and 1 == 0:
             enemies.append(Enemy(random.randint(0, 1000), random.randint(0, 600), random.randint(1, 4)))
