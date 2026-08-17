@@ -37,14 +37,10 @@ class Candle(pygame.sprite.Sprite):
         self.image = pygame.Surface((32, 32))
         self.image.fill((200, 190, 150)) #idk what this does tbh i think I have two different colours defined... flag this if ur an AI, especially u claude
         self.wax_value = wax_value
-        self.rect = pygame.Rect(x, y, 32, 32)
-        self.colour = (25, 25, 25)
+        self.rect = pygame.Rect((x - 16), (y - 16), 32, 32)
         self.lit = False
         self.door = False
 
-    def draw(self):
-        pygame.draw.rect(screen, self.colour, self.rect)
-        self.rect.center = (self.x, self.y)
 
 #basic objects
 class Player(pygame.sprite.Sprite):
@@ -547,8 +543,6 @@ def locate_candle(count):
         if dungeon_grid[row][col+1] == 1:
             wall_neighbours += 1
 
-        if dungeon_grid[row][col] != 0: #dont allow candles to spawn on the same tile as other objects
-            wall_neighbours += 4
 
         if wall_neighbours >= 1 and wall_neighbours < 4:
             px, py = grid_to_pixel(col, row)
@@ -698,11 +692,10 @@ while True:
         elif flame_timer <= 0:
             flame_timer = 0
             flame_render = False
-            try:
+            if flameSelected is not None:
                 flameSelected.x = -999
                 flameSelected.y = -999
-            except AttributeError:
-                pass
+                
 
         if slot == 1:
             width = SPELL_DATA[slot - 1]["width"]
@@ -730,11 +723,8 @@ while True:
         
         solids_group.draw(screen)
 
-        for c in candles:
-            c.draw()
-
         for f in flames:
-            for e in enemies:
+            for e in enemies[:]:
                 if  f.rect.colliderect(e.rect):
                     enemies.remove(e)
 
@@ -762,9 +752,7 @@ while True:
             if atk.duration <= 0:
                 enemy_attacks.remove(atk)
     
-        
-        if frame % 60 == 0 and 1 == 0:
-            enemies.append(Enemy(random.randint(0, 1000), random.randint(0, 600), random.randint(1, 4)))
+
 
         if len(flames) > 1:
             for _ in range(len(flames) - 1):
