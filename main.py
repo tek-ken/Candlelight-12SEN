@@ -584,7 +584,8 @@ SPELL_DATA = [
 start_menu = True
 start_button = Button(425, 225, 150, 60, WHITE, "Play")
 
-def draw_ui():
+#subroutines
+def draw_queue(): #draws a spell queue in the bottom left
     slot_size = 50
     padding = 10
     ui_y = screen.get_height() - 70
@@ -618,7 +619,68 @@ def reset_dungeon():
 
         enemies.append(Enemy(414, 254, 4))
 
+def draw_wax(): #draws the player's current wax bar in top left corner
+    wax_ratio = max(0, player.wax / player.max_wax)
+    bar_x, bar_y = 20, 20
+    bar_width, bar_height = 200, 25
 
+    pygame.draw.rect(screen, (60, 40, 30), (bar_x, bar_y, bar_width, bar_height))
+    pygame.draw.rect(screen, (255, 180, 50), (bar_x, bar_y, bar_width * wax_ratio, bar_height))
+    pygame.draw.rect(screen, (255, 255, 255), (bar_x, bar_y, bar_width, bar_height), 2)
+
+def draw_hud(): #combines hud/ui components into one callable function
+    draw_queue()
+    draw_wax()
+
+def check_quit(event): #exits if window closed
+    if event.type == pygame.QUIT:
+        pygame.quit()
+        sys.exit()
+
+
+def handle_menu_events(): #processes various menu events
+    for event in pygame.event.get():
+        check_quit(event)
+        if start_button.is_clicked(event):
+            return True
+    return False
+
+
+def handle_game_events(): #processes gameplay events
+    for event in pygame.event.get():
+        check_quit(event)
+
+def get_current_spell(): #returns stats of currently selected spell
+    data = SPELL_DATA[slot - 1]
+    padding = 20 if slot == 3 else 10
+    return data["width"], data["height"], padding, data["colour"], data["wide"]
+
+def handle_spell_casting(): #casts spell in chozen direction if requirements met
+    global flames
+
+    if flame_render:
+        return                      # already casting, ignore input
+
+    cost = SPELL_DATA[slot - 1]["cost"]
+    if player.wax < cost:
+        return                      # can't afford it (fizzle hook goes here)**REMEMBER TO REMOVE/RESOLVE COMMENT**
+
+    width, height, padding, colour, is_wide = get_current_spell()
+    key = pygame.key.get_pressed()
+
+    direction = None
+    if key[pygame.K_UP]:
+        direction = "UP"
+    elif key[pygame.K_DOWN]:
+        direction = "DOWN"
+    elif key[pygame.K_LEFT]:
+        direction = "LEFT"
+    elif key[pygame.K_RIGHT]:
+        direction = "RIGHT"
+
+    if direction is not None:
+        flames.append(Flame(width, height, padding, colour, direction, 60, is_wide))
+        player.wax -= cost
 
 #initialise
 while True:
@@ -695,28 +757,7 @@ while True:
             if flameSelected is not None:
                 flameSelected.x = -999
                 flameSelected.y = -999
-                
 
-        if slot == 1:
-            width = SPELL_DATA[slot - 1]["width"]
-            height = SPELL_DATA[slot - 1]["height"]
-            padding = 10
-            colour = SPELL_DATA[slot - 1]["colour"]
-            is_wide = SPELL_DATA[slot - 1]["wide"]
-            
-        if slot == 2:
-            width = SPELL_DATA[slot - 1]["width"]
-            height = SPELL_DATA[slot - 1]["height"]
-            padding = 10
-            colour = SPELL_DATA[slot - 1]["colour"]
-            is_wide = SPELL_DATA[slot - 1]["wide"]
-
-        if slot == 3:
-            width = SPELL_DATA[slot - 1]["width"]
-            height = SPELL_DATA[slot - 1]["height"]
-            padding = 20
-            colour = SPELL_DATA[slot - 1]["colour"]
-            is_wide = SPELL_DATA[slot - 1]["wide"]
 
         #DRAWING
         screen.fill(BLACK)
@@ -764,60 +805,11 @@ while True:
         else:
             flames.clear()
 
-        draw_ui()
-
-
-        #wax-effect
-        wax_ratio = player.wax / player.max_wax
-
-        # Bar position and size
-        bar_x = 20
-        bar_y = 20
-        bar_width = 200
-        bar_height = 25
-
-        # 1. Background (empty track) — full width, dark
-        pygame.draw.rect(screen, (60, 40, 30),
-                        (bar_x, bar_y, bar_width, bar_height))
-
-        # 2. Fill — width scales with wax
-        fill_width = bar_width * wax_ratio
-        pygame.draw.rect(screen, (255, 180, 50),
-                        (bar_x, bar_y, fill_width, bar_height))
-        
-        # 3. Outline (drawn last, on top)
-        pygame.draw.rect(screen, (255, 255, 255),
-                        (bar_x, bar_y, bar_width, bar_height), 2)
-        
-
+        draw_queue()
 
 
         #PLAYER CONTROL
         key = pygame.key.get_pressed()
-
-        if (key[pygame.K_UP] or key[pygame.K_DOWN] or key[pygame.K_LEFT] or key[pygame.K_RIGHT]) and flame_render == False:
-            pass
-
-        if flame_render == False and player.wax >= SPELL_DATA[slot - 1]["cost"]:
-            remove_wax = True
-
-            if key[pygame.K_UP] == True:
-                flames.append(Flame(width, height, padding, colour, "UP", 60, is_wide))
-
-            elif key[pygame.K_DOWN] == True and len(flames) == 0:
-                flames.append(Flame(width, height, padding, colour, "DOWN", 60, is_wide))
-
-            elif key[pygame.K_LEFT] == True and len(flames) == 0:
-                flames.append(Flame(width, height, padding, colour, "LEFT", 60, is_wide))
-
-            elif key[pygame.K_RIGHT] == True and len(flames) == 0:
-                flames.append(Flame(width, height, padding, colour, "RIGHT", 60, is_wide))
-            else:
-                remove_wax = False
-
-
-            if remove_wax is True:
-                player.wax -= SPELL_DATA[slot - 1]["cost"]
         
         if key[pygame.K_r]:
                 player.pos.x = 464
