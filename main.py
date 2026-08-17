@@ -1,13 +1,10 @@
 import pygame, random, math, time, sys, os
-from dungeon import room_1, room_2
 pygame.init()
 
 pygame.display.init()
 screen = pygame.display.set_mode((960, 640))
 clock = pygame.time.Clock()
 FPS = 60
-moveInt = 0
-pressed_count = 0
 
 TILE_SIZE = 32
 
@@ -110,21 +107,17 @@ class Player(pygame.sprite.Sprite):
         for tile in collisions:
             if tile.door:
                 # FIXED: properly resetting pos vector so you don't get stuck!
-                self.pos.x = 464
-                self.pos.y = 304
-                self.rect.x = 464
-                self.rect.y = 304
+                self.pos.x = SPAWN_X
+                self.pos.y = SPAWN_Y
+                self.rect.x = SPAWN_X
+                self.rect.y = SPAWN_Y
                 new_room = True
 
             if isinstance(tile, Candle) and not tile.lit:
                 tile.lit = True
                 self.wax = min(self.max_wax, self.wax + tile.wax_value)
                 tile.image.fill((255, 200, 60))
-                tile.colour = (255, 200, 60)
 
-
-
-camera_group = pygame.sprite.Group()
 
 class Button:
     def __init__(self, x, y, width, height, color, text=""):
@@ -236,7 +229,6 @@ class Flame: #main spell class
             pass
 
         self.orientate()
-        self.draw()
 
 
 class Enemy(pygame.sprite.Sprite):
@@ -324,7 +316,7 @@ class Enemy(pygame.sprite.Sprite):
         start = pixel_to_grid(self.pos.x, self.pos.y)
         goal = pixel_to_grid(player_pos.x, player_pos.y)
         self.path = find_path(start, goal)
-        self.path_index = 1 #start new path from the beginning
+        self.path_index = 1 #start new path from [1]
 
 class EnemyAttack:
     def __init__(self, enemy, direction, duration=15, damage=10):
@@ -333,7 +325,6 @@ class EnemyAttack:
         self.duration = duration
         self.damage = damage
         self.enemy = enemy
-        self.direction = direction
         self.has_hit = False        # so one swipe can't hit twice
         self.colour = (200, 40, 40)
 
@@ -560,7 +551,6 @@ HOVER_SCALE = 1.2
 flame_render = False
 flame_timer = 0
 flameSelected = None
-flameColour = None
 frame = 0
 new_room = True
 slot = 1 
@@ -568,13 +558,13 @@ slot = 1
 dungeon_grid = []
 solids_group = pygame.sprite.Group()
 
-player = Player(464, 304)
-flame_appendix = ['square', 'vRect', 'hRect']
+SPAWN_X = 464
+SPAWN_Y = 304
+player = Player(SPAWN_X, SPAWN_Y)
 flames = []
 enemies = []
 enemy_attacks = []
 candles = []
-candle_spots = []
 SPELL_DATA = [
     {"width": 30, "height": 30, "colour": ORANGE, "wide": False, "cost": 15},
     {"width": 25, "height": 40, "colour": RED,    "wide": False, "cost": 20},
@@ -606,19 +596,6 @@ def draw_queue(): #draws a spell queue in the bottom left
         
         pygame.draw.rect(screen, data["colour"], mini_rect)
 
-def reset_dungeon():
-        # 960 width / 32px tiles = 30 tiles wide
-        # 640 height / 32px tiles = 20 tiles high
-        global dungeon_grid
-        chosen_room = generate_cave(30, 20, fill_prob=0.45, iterations=4)
-        dungeon_grid = chosen_room
-        load_room(chosen_room, solids_group)
-        # --------------------------------------------
-
-        enemies.clear()
-
-        enemies.append(Enemy(414, 254, 4))
-
 def draw_wax(): #draws the player's current wax bar in top left corner
     wax_ratio = max(0, player.wax / player.max_wax)
     bar_x, bar_y = 20, 20
@@ -637,14 +614,12 @@ def check_quit(event): #exits if window closed
         pygame.quit()
         sys.exit()
 
-
 def handle_menu_events(): #processes various menu events
     for event in pygame.event.get():
         check_quit(event)
         if start_button.is_clicked(event):
             return True
     return False
-
 
 def handle_game_events(): #processes gameplay events
     for event in pygame.event.get():
@@ -656,7 +631,6 @@ def get_current_spell(): #returns stats of currently selected spell
     return data["width"], data["height"], padding, data["colour"], data["wide"]
 
 def handle_spell_casting(): #casts spell in chozen direction if requirements met
-    global flames
 
     if flame_render:
         return                      # already casting, ignore input
@@ -682,16 +656,122 @@ def handle_spell_casting(): #casts spell in chozen direction if requirements met
         flames.append(Flame(width, height, padding, colour, direction, 60, is_wide))
         player.wax -= cost
 
+def draw_world(): #draws dungeon, player, enemies and attacks
+    screen.fill(BLACK)
+    solids_group.draw(screen)
+    screen.blit(player.image, player.rect)
+
+    for e in enemies:
+        screen.blit(e.image, e.rect)
+
+    for atk in enemy_attacks:
+        atk.draw(screen)
+
+    if flame_render:
+        for f in flames:
+            f.update()
+
+def update_timers(): #updates various game timers
+    global frame, flame_timer, flame_render, flameSelected
+
+    frame += 1
+    if frame >= 60:
+        frame = 0
+
+    player.wax -= 0.01
+
+    if flame_timer > 0:
+        flame_timer -= 1
+    else:
+        flame_timer = 0
+        flame_render = False
+        flames.clear()
+        if flameSelected is not None:
+            flameSelected.x = -999
+            flameSelected.y = -999
+
+def update_entities(): #updates player, enemies and active attacks
+    player.update(solids_group)
+
+    target_pos = pygame.math.Vector2(player.rect.center)
+    for e in enemies:
+        if frame % 30 == 0:
+            e.recalculate_path(target_pos)
+        e.update(target_pos, enemies)
+
+    for atk in enemy_attacks[:]:
+        atk.update()
+        if atk.duration <= 0:
+            enemy_attacks.remove(atk)
+
+def check_collisions(): #handles player/enemy to flame interactions
+    # flames damaging enemies
+    for f in flames:
+        for e in enemies[:]:
+            if f.rect.colliderect(e.rect):
+                enemies.remove(e)
+
+    # flames damaging the player
+    for atk in enemy_attacks:
+        if not atk.has_hit and atk.rect.colliderect(player.rect):
+            atk.has_hit = True
+            player.wax -= atk.damage
+
+def reset_dungeon(): #resets dungeon map and entities
+    global dungeon_grid
+
+    chosen_room = generate_cave(30, 20, fill_prob=0.45, iterations=4)
+    dungeon_grid = chosen_room
+    load_room(chosen_room, solids_group)
+
+    place_candles(2)
+    spawn_enemies(2)
+
+def place_candles(count): #generates candles in wall nooks and adds collision
+    candles.clear()
+    for spot in locate_candle(count):
+        candle = Candle(spot[0], spot[1])
+        candles.append(candle)
+        solids_group.add(candle)
+        col, row = pixel_to_grid(spot[0], spot[1])
+        dungeon_grid[row][col] = 1      # block pathfinding through the candle
+
+def spawn_enemies(count): #clear enemies and begin new wave
+    enemies.clear()
+
+    spots = []
+    attempts = 0
+    while len(spots) < count and attempts < 500:
+        attempts += 1
+        col = random.randint(1, len(dungeon_grid[0]) - 2)
+        row = random.randint(1, len(dungeon_grid) - 2)
+        
+        if dungeon_grid[row][col] != 0: #filter for valid placing locations
+            continue
+
+        px, py = grid_to_pixel(col, row)
+        spots.append((px, py))
+
+    for spot in spots:
+        enemies.append(Enemy(spot[0], spot[1], 4))
+
+def check_death():
+    return player.wax <= 0
+
+def debug_reset(): #allows for debug reset
+    global new_room
+    if pygame.key.get_pressed()[pygame.K_r]:
+        player.pos.x = SPAWN_X
+        player.pos.y = SPAWN_Y
+        player.rect.x = SPAWN_X
+        player.rect.y = SPAWN_Y
+        new_room = True
+
+
 #initialise
 while True:
     #menu loop
     while start_menu == True:
-
-        pygame.display.update()
-        clock.tick(FPS)
-        if frame == 60:
-            frame = 0
-        frame += 1
 
         screen.fill(BLACK)
 
@@ -700,120 +780,44 @@ while True:
             button.update()
             button.draw(screen)
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            if start_button.is_clicked(event):
-                start_menu = False
+        if handle_menu_events():
+            start_menu = False
 
         #setting important player values
         player.wax = player.max_wax
 
-        player.pos.x = 464
-        player.pos.y = 304
-        player.rect.x = 464
-        player.rect.y = 304
+        player.pos.x = SPAWN_X
+        player.pos.y = SPAWN_Y
+        player.rect.x = SPAWN_X
+        player.rect.y = SPAWN_Y
 
         slot = 1
-
-    #game loop
-    while start_menu == False:
-        
-        if new_room:
-            reset_dungeon()
-            new_room = False
-
-            #set candles
-            candles.clear()
-            candle_spots = locate_candle(2)
-            for c in candle_spots:
-                candles.append(Candle(c[0], c[1]))
-                solids_group.add(candles[-1])
-                grid_coord = pixel_to_grid(c[0], c[1])
-                dungeon_grid[grid_coord[1]][grid_coord[0]] = 1 #set candle tile to be equal to a wall
-
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
 
         pygame.display.update()
         clock.tick(FPS)
         if frame == 60:
             frame = 0
-        frame += 1
-        
-        player.wax -= 0.01
-        if player.wax <= 0:
+            frame += 1
+
+    #game loop
+    while start_menu == False:
+
+        if new_room:
+            reset_dungeon()
+            new_room = False
+
+        handle_game_events()
+        update_timers()
+        handle_spell_casting()
+        debug_reset()
+        update_entities()
+        check_collisions()
+
+        draw_world()
+        draw_hud()
+
+        if check_death():
             start_menu = True
 
-        if flame_timer > 0:
-            flame_timer -= 1
-        elif flame_timer <= 0:
-            flame_timer = 0
-            flame_render = False
-            if flameSelected is not None:
-                flameSelected.x = -999
-                flameSelected.y = -999
-
-
-        #DRAWING
-        screen.fill(BLACK)
-        
-        solids_group.draw(screen)
-
-        for f in flames:
-            for e in enemies[:]:
-                if  f.rect.colliderect(e.rect):
-                    enemies.remove(e)
-
-        player.update(solids_group)
-        screen.blit(player.image, player.rect)
-
-        #Enemy loops
-        target_pos = pygame.math.Vector2(player.rect.center)
-        for e in enemies:
-
-            if frame % 15 == 0: #recalculate path 4x a second
-                e.recalculate_path(target_pos)
-
-            e.update(target_pos, enemies)
-            screen.blit(e.image, e.rect)
-
-        for atk in enemy_attacks[:]:
-            atk.update()
-            atk.draw(screen)
-
-            if not atk.has_hit and atk.rect.colliderect(player.rect):
-                atk.has_hit = True
-                player.wax -= atk.damage
-
-            if atk.duration <= 0:
-                enemy_attacks.remove(atk)
-    
-
-
-        if len(flames) > 1:
-            for _ in range(len(flames) - 1):
-                flames.pop(_ - 1)
-
-        if flame_render:
-            for f in flames:
-                f.update()
-        else:
-            flames.clear()
-
-        draw_queue()
-
-
-        #PLAYER CONTROL
-        key = pygame.key.get_pressed()
-        
-        if key[pygame.K_r]:
-                player.pos.x = 464
-                player.pos.y = 304
-                player.rect.x = 464
-                player.rect.y = 304
-                new_room = True
+        pygame.display.update()
+        clock.tick(FPS)
