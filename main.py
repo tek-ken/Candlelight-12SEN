@@ -1,5 +1,6 @@
-import pygame, random, math, time, sys, os
+import pygame, random, math, time, sys, os, database
 pygame.init()
+database.init_database()
 
 pygame.display.init()
 screen = pygame.display.set_mode((960, 640))
@@ -54,6 +55,8 @@ class Player(pygame.sprite.Sprite):
 
         self.max_wax = 100
         self.wax = self.max_wax
+        self.score = 0
+        self.rooms_cleared = 0
 
     def update(self, walls):
         global new_room
@@ -112,6 +115,7 @@ class Player(pygame.sprite.Sprite):
                 self.rect.x = SPAWN_X
                 self.rect.y = SPAWN_Y
                 new_room = True
+                player.rooms_cleared += 1
 
             if isinstance(tile, Candle) and not tile.lit:
                 tile.lit = True
@@ -232,18 +236,24 @@ class Flame: #main spell class
 
 
 class Enemy(pygame.sprite.Sprite):
-    def __init__(self, x, y, speed):
+    def __init__(self, x, y, type):
         super().__init__()
-        self.image = pygame.Surface((32, 32))
-        self.image.fill("darkgrey")
+        data = ENEMY_DATA[type]
+
+        self.name = data["name"]
+        self.speed = data["speed"]
+        self.range = data["range"]
+        self.damage = data["damage"]
+
+        size = data["size"]
+        self.image = pygame.Surface((size, size))
+        self.image.fill(data["colour"])
         self.rect = self.image.get_rect(center=(x, y))
+
         self.pos = pygame.math.Vector2(x, y)
-        self.speed = speed
         self.path = [] #list of tiles to folllow
         self.path_index = 0
-        self.velocity = (0,0)
         self.aim = None
-        self.range = 60
         self.attack_cooldown = 0
 
     def update(self, player_pos, other_enemies):
@@ -309,7 +319,7 @@ class Enemy(pygame.sprite.Sprite):
         self.rect.center = (round(self.pos.x), round(self.pos.y))
 
     def attack(self):
-        enemy_attacks.append(EnemyAttack(self, self.aim))
+        enemy_attacks.append(EnemyAttack(self, self.aim, damage=self.damage))
         self.attack_cooldown = 90
 
     def recalculate_path(self, player_pos):
@@ -554,6 +564,8 @@ flameSelected = None
 frame = 0
 new_room = True
 slot = 1 
+paused = False
+gameOver = False
 
 dungeon_grid = []
 solids_group = pygame.sprite.Group()
@@ -569,6 +581,11 @@ SPELL_DATA = [
     {"width": 30, "height": 30, "colour": ORANGE, "wide": False, "cost": 15},
     {"width": 25, "height": 40, "colour": RED,    "wide": False, "cost": 20},
     {"width": 80, "height": 60, "colour": GREEN,  "wide": True, "cost": 30}  
+]
+ENEMY_DATA = [
+    {"name": "shade",   "colour": (90, 90, 110),  "speed": 5, "damage": 8,  "range": 50,  "size": 32},
+    {"name": "brute",   "colour": (140, 70, 70),  "speed": 2, "damage": 20, "range": 70,  "size": 40},
+    {"name": "wisp",    "colour": (70, 130, 140), "speed": 7, "damage": 5,  "range": 45,  "size": 26},
 ]
 
 start_menu = True
@@ -622,8 +639,11 @@ def handle_menu_events(): #processes various menu events
     return False
 
 def handle_game_events(): #processes gameplay events
+    global paused
     for event in pygame.event.get():
         check_quit(event)
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            paused = not paused
 
 def get_current_spell(): #returns stats of currently selected spell
     data = SPELL_DATA[slot - 1]
@@ -670,6 +690,7 @@ def draw_world(): #draws dungeon, player, enemies and attacks
     if flame_render:
         for f in flames:
             f.update()
+            f.draw()
 
 def update_timers(): #updates various game timers
     global frame, flame_timer, flame_render, flameSelected
@@ -710,6 +731,7 @@ def check_collisions(): #handles player/enemy to flame interactions
         for e in enemies[:]:
             if f.rect.colliderect(e.rect):
                 enemies.remove(e)
+                player.score += 10
 
     # flames damaging the player
     for atk in enemy_attacks:
@@ -753,7 +775,8 @@ def spawn_enemies(count): #clear enemies and begin new wave
         spots.append((px, py))
 
     for spot in spots:
-        enemies.append(Enemy(spot[0], spot[1], 4))
+        enemy_type = random.randint(0, len(ENEMY_DATA) - 1)
+        enemies.append(Enemy(spot[0], spot[1], enemy_type))
 
 def check_death():
     return player.wax <= 0
@@ -766,6 +789,70 @@ def debug_reset(): #allows for debug reset
         player.rect.x = SPAWN_X
         player.rect.y = SPAWN_Y
         new_room = True
+
+def draw_stats(): #draws relevant player scores
+    font = pygame.font.Font(None, 28)
+    score_text = font.render(f"Score: {player.score}", True, WHITE)
+    rooms_text = font.render(f"Rooms: {player.rooms_cleared}", True, WHITE)
+
+    screen.blit(score_text, (screen.get_width() - 150, 20))
+    screen.blit(rooms_text, (screen.get_width() - 150, 50))
+
+def draw_pause_menu(): #draws overlay with controls and player stats
+    overlay = pygame.Surface((screen.get_width(), screen.get_height()))
+    overlay.set_alpha(180)
+    overlay.fill(BLACK)
+    screen.blit(overlay, (0, 0))
+
+    font_large = pygame.font.Font(None, 64)
+    font_small = pygame.font.Font(None, 28)
+
+    title = font_large.render("PAUSED", True, (255, 200, 60))
+    screen.blit(title, title.get_rect(center=(screen.get_width() // 2, 100)))
+
+    profile = database.get_profile()
+
+    lines = [
+        "WASD - Move",
+        "Arrow Keys - Cast spell in that direction",
+        "Spells rotate automatically after each cast",
+        "Walk into a dowsed candle to relight it and restore wax",
+        "Your wax is both your health and your mana",
+        "ESC - Resume",
+        "",
+        f"Best score: {profile['highscore']}   Total runs: {profile['total_runs']}",
+    ]
+
+    y = 190
+    for line in lines:
+        text = font_small.render(line, True, WHITE)
+        screen.blit(text, text.get_rect(center=(screen.get_width() // 2, y)))
+        y += 36
+
+def draw_game_over(): #draws end-run screen with final stats
+    overlay = pygame.Surface((screen.get_width(), screen.get_height()))
+    overlay.set_alpha(200)
+    overlay.fill(BLACK)
+    screen.blit(overlay, (0, 0))
+
+    font_large = pygame.font.Font(None, 72)
+    font_small = pygame.font.Font(None, 32)
+
+    title = font_large.render("EXTINGUISHED", True, (200, 40, 40))
+    screen.blit(title, title.get_rect(center=(screen.get_width() // 2, 180)))
+
+    lines = [
+        f"Final score: {player.score}",
+        f"Rooms cleared: {player.rooms_cleared}",
+        "",
+        "Press SPACE to return to menu",
+    ]
+
+    y = 280
+    for line in lines:
+        text = font_small.render(line, True, WHITE)
+        screen.blit(text, text.get_rect(center=(screen.get_width() // 2, y)))
+        y += 40
 
 
 #initialise
@@ -785,6 +872,8 @@ while True:
 
         #setting important player values
         player.wax = player.max_wax
+        player.score = 0
+        player.rooms_cleared = 0
 
         player.pos.x = SPAWN_X
         player.pos.y = SPAWN_Y
@@ -807,17 +896,36 @@ while True:
             new_room = False
 
         handle_game_events()
-        update_timers()
-        handle_spell_casting()
-        debug_reset()
-        update_entities()
-        check_collisions()
+
+        if not paused:
+            update_timers()
+            handle_spell_casting()
+            debug_reset()
+            update_entities()
+            check_collisions()
 
         draw_world()
         draw_hud()
 
-        if check_death():
-            start_menu = True
+        if paused:
+            draw_pause_menu()
+            draw_stats()
 
+        if check_death():
+            database.record_run(player.score, player.rooms_cleared)
+            start_menu = True
+            gameOver = True
+
+        pygame.display.update()
+        clock.tick(FPS)
+
+    while gameOver:
+        for event in pygame.event.get():
+            check_quit(event)
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                gameOver = False
+                start_menu = True
+
+        draw_game_over()
         pygame.display.update()
         clock.tick(FPS)
