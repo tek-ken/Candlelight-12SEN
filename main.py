@@ -566,6 +566,8 @@ new_room = True
 slot = 1 
 paused = False
 gameOver = False
+showDebug = False
+showASTAR = False
 
 dungeon_grid = []
 solids_group = pygame.sprite.Group()
@@ -586,6 +588,13 @@ ENEMY_DATA = [
     {"name": "shade",   "colour": (90, 90, 110),  "speed": 5, "damage": 8,  "range": 50,  "size": 32},
     {"name": "brute",   "colour": (140, 70, 70),  "speed": 2, "damage": 20, "range": 70,  "size": 40},
     {"name": "wisp",    "colour": (70, 130, 140), "speed": 7, "damage": 5,  "range": 45,  "size": 26},
+]
+PATH_COLOURS = [
+    (0, 200, 255),    # cyan
+    (255, 120, 200),  # pink
+    (150, 255, 120),  # lime
+    (255, 200, 60),   # gold
+    (180, 140, 255),  # violet
 ]
 
 start_menu = True
@@ -639,11 +648,18 @@ def handle_menu_events(): #processes various menu events
     return False
 
 def handle_game_events(): #processes gameplay events
-    global paused
+    global paused, showDebug, showASTAR
     for event in pygame.event.get():
         check_quit(event)
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             paused = not paused
+
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_F3:
+            showDebug = not showDebug
+
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_F4 and showDebug:
+                    showASTAR = not showASTAR
+        
 
 def get_current_spell(): #returns stats of currently selected spell
     data = SPELL_DATA[slot - 1]
@@ -854,6 +870,44 @@ def draw_game_over(): #draws end-run screen with final stats
         screen.blit(text, text.get_rect(center=(screen.get_width() // 2, y)))
         y += 40
 
+def draw_debug(): #displays runtime diagnostics, toggled by F3
+    font = pygame.font.Font(None, 22)
+
+    player_tile = pixel_to_grid(player.pos.x, player.pos.y)
+
+    lines = [
+        f"FPS: {clock.get_fps():.1f}",
+        f"Entities: {len(enemies)} enemies, {len(flames)} flames, {len(enemy_attacks)} attacks",
+        f"Candles: {sum(1 for c in candles if c.lit)}/{len(candles)} lit",
+        f"Player tile: {player_tile}",
+        f"Wax: {player.wax:.1f} / {player.max_wax}",
+        f"Spell slot: {slot}",
+        f"To display A*, hit F4",
+    ]
+
+    x = screen.get_width() - 260
+    y = 5
+    for line in lines:
+        text = font.render(line, True, (0, 255, 0))
+        screen.blit(text, (x, y))
+        y += 20
+
+def draw_ASTAR(): #draws each enemy's A* path as connected by line segments
+    for i, e in enumerate(enemies):
+        if e.path_index >= len(e.path):
+            continue
+
+        colour = PATH_COLOURS[i % len(PATH_COLOURS)]
+        remaining = [grid_to_pixel(t[0], t[1]) for t in e.path[e.path_index:]]
+
+        # route from the enemy through its remaining waypoints
+        route = [(int(e.pos.x), int(e.pos.y))] + remaining
+        if len(route) > 1:
+            pygame.draw.lines(screen, colour, False, route, 2)
+
+        # marker on the destination
+        pygame.draw.circle(screen, colour, remaining[-1], 5, 2)
+
 
 #initialise
 while True:
@@ -910,6 +964,11 @@ while True:
         if paused:
             draw_pause_menu()
             draw_stats()
+
+        if showDebug:
+            draw_debug()
+            if showASTAR:
+                draw_ASTAR()
 
         if check_death():
             database.record_run(player.score, player.rooms_cleared)
