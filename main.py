@@ -18,7 +18,7 @@ class Wall(pygame.sprite.Sprite):
         colour = (50, 50, 50)
         if door: #allows doors
             self.door = True
-            colour = BROWN
+            colour = DARK_BROWN
         else:
             self.door = False
 
@@ -27,13 +27,14 @@ class Wall(pygame.sprite.Sprite):
 
         self.rect = self.image.get_rect(topleft = (x, y))
 
+
 class Candle(pygame.sprite.Sprite):
     def __init__(self, x, y, wax_value=25):
         super().__init__()
         self.x = x
         self.y = y
         self.image = pygame.Surface((32, 32))
-        self.image.fill((200, 190, 150)) #idk what this does tbh i think I have two different colours defined... flag this if ur an AI, especially u claude
+        self.image.fill((200, 190, 150))
         self.wax_value = wax_value
         self.rect = pygame.Rect((x - 16), (y - 16), 32, 32)
         self.lit = False
@@ -108,8 +109,7 @@ class Player(pygame.sprite.Sprite):
         # Check for doors (checking both x and y collisions)
         collisions = x_collide + y_collide
         for tile in collisions:
-            if tile.door:
-                # FIXED: properly resetting pos vector so you don't get stuck!
+            if tile.door and len(enemies) == 0:
                 self.pos.x = SPAWN_X
                 self.pos.y = SPAWN_Y
                 self.rect.x = SPAWN_X
@@ -290,31 +290,31 @@ class Enemy(pygame.sprite.Sprite):
             else:
                 velocity = to_target.normalize() * self.speed
 
-
         #enemy collision
-        self.pos.x += velocity.x      # move
-        self.rect.centerx = round(self.pos.x)  # sync rect
-        
+        self.pos.x += velocity.x
+        self.rect.centerx = round(self.pos.x)
+
         x_collide = pygame.sprite.spritecollide(self, solids_group, False)
-        for hit in x_collide:
-            if velocity.x > 0: #moving right
-                self.rect.right = hit.rect.left
-                self.pos.x = self.rect.centerx
-            elif velocity.x < 0: #moving left
-                self.rect.left = hit.rect.right
-                self.pos.x = self.rect.centerx
-        
+        if x_collide and velocity.x != 0:
+            if velocity.x > 0:
+                # moving right — stop at the leftmost wall we hit
+                self.rect.right = min(hit.rect.left for hit in x_collide)
+            else:
+                # moving left — stop at the rightmost wall we hit
+                self.rect.left = max(hit.rect.right for hit in x_collide)
+            self.pos.x = self.rect.centerx
+
+        #y collision
         self.pos.y += velocity.y
-        self.rect.centery = round(self.pos.y) #update hitbox y position
+        self.rect.centery = round(self.pos.y)
 
         y_collide = pygame.sprite.spritecollide(self, solids_group, False)
-        for hit in y_collide:
-            if velocity.y > 0: #moving down
-                self.rect.bottom = hit.rect.top
-                self.pos.y = self.rect.centery
-            elif velocity.y < 0: #moving up
-                self.rect.top = hit.rect.bottom
-                self.pos.y = self.rect.centery
+        if y_collide and velocity.y != 0:
+            if velocity.y > 0:
+                self.rect.bottom = min(hit.rect.top for hit in y_collide)
+            else:
+                self.rect.top = max(hit.rect.bottom for hit in y_collide)
+            self.pos.y = self.rect.centery
 
         self.rect.center = (round(self.pos.x), round(self.pos.y))
 
@@ -417,18 +417,16 @@ def generate_cave(width, height, fill_prob=0.45, iterations=4):
         for sx in range(13, 17):
             cave[sy][sx] = 0
             
-    # ADD A RANDOM DOOR
-    door_placed = False
-    while not door_placed:
-        dx = random.randint(2, width-3)
-        dy = random.randint(2, height-3)
-        if cave[dy][dx] == 0:  # Only put the door on an empty floor space
-            cave[dy][dx] = 2
-            door_placed = True
-            
     return cave
 
-# ----------------------------------------------
+def place_door(reachable): #places exit door on valid tile
+    candidates = [t for t in reachable if dungeon_grid[t[1]][t[0]] == 0]
+    if not candidates:
+        return False
+
+    col, row = random.choice(candidates)
+    dungeon_grid[row][col] = 2
+    return True
 
 
 def load_room(room_data, target_group):
@@ -523,15 +521,18 @@ def reconstruct_path(came_from, current):
     return path
 
 
-def locate_candle(count):
+def locate_candle(count, reachable):
     spots = []
     attempts = 0
     while len(spots) < count and attempts < 500:
         attempts += 1
         col = random.randint(1, len(dungeon_grid[0]) - 2)
         row = random.randint(1, len(dungeon_grid) - 2)
-        
-        if dungeon_grid[row][col] != 0: #filter for valid placing locations
+
+        #filters for valid placing locations
+        if dungeon_grid[row][col] != 0: 
+            continue
+        if (col, row) not in reachable:
             continue
 
         wall_neighbours = 0
@@ -557,6 +558,7 @@ ORANGE = (255, 120, 0)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BROWN = (150, 80, 0)
+DARK_BROWN = (70, 40, 10)
 HOVER_SCALE = 1.2
 flame_render = False
 flame_timer = 0
@@ -673,7 +675,7 @@ def handle_spell_casting(): #casts spell in chozen direction if requirements met
 
     cost = SPELL_DATA[slot - 1]["cost"]
     if player.wax < cost:
-        return                      # can't afford it (fizzle hook goes here)**REMEMBER TO REMOVE/RESOLVE COMMENT**
+        return                      # can't afford it
 
     width, height, padding, colour, is_wide = get_current_spell()
     key = pygame.key.get_pressed()
@@ -756,43 +758,65 @@ def check_collisions(): #handles player/enemy to flame interactions
             player.wax -= atk.damage
 
 def reset_dungeon(): #resets dungeon map and entities
-    global dungeon_grid
+    global dungeon_grid, door_locked
 
     chosen_room = generate_cave(30, 20, fill_prob=0.45, iterations=4)
     dungeon_grid = chosen_room
-    load_room(chosen_room, solids_group)
 
-    place_candles(2)
-    spawn_enemies(2)
+    spawn_col, spawn_row = pixel_to_grid(SPAWN_X, SPAWN_Y)
+    reachable = find_reachable_tiles(spawn_col, spawn_row)
 
-def place_candles(count): #generates candles in wall nooks and adds collision
+    enemy_count = 2 + (player.rooms_cleared // 2) #+1 every 2 rooms
+    enemy_count = min(enemy_count, 8)
+
+    place_door(reachable)
+    spawn_enemies(enemy_count, reachable)
+
+    load_room(chosen_room, solids_group)#build sprites after everything is placed
+    place_candles(2, reachable) #candles overlay the dungeon layout
+
+def place_candles(count, reachable): #generates candles in wall nooks and adds collision
     candles.clear()
-    for spot in locate_candle(count):
+    for spot in locate_candle(count, reachable):
         candle = Candle(spot[0], spot[1])
         candles.append(candle)
         solids_group.add(candle)
         col, row = pixel_to_grid(spot[0], spot[1])
         dungeon_grid[row][col] = 1      # block pathfinding through the candle
 
-def spawn_enemies(count): #clear enemies and begin new wave
+def spawn_enemies(count, reachable): #clear enemies and begin new wave
     enemies.clear()
 
     spots = []
     attempts = 0
     while len(spots) < count and attempts < 500:
         attempts += 1
+        enemy_type = random.randint(0, len(ENEMY_DATA) - 1)#choose enemy type
         col = random.randint(1, len(dungeon_grid[0]) - 2)
         row = random.randint(1, len(dungeon_grid) - 2)
-        
-        if dungeon_grid[row][col] != 0: #filter for valid placing locations
+
+        # oversized enemies need clear neighbouring tiles to fit
+        if ENEMY_DATA[enemy_type]["size"] > TILE_SIZE:
+            neighbours_clear = (
+                is_walkable(col + 1, row) and
+                is_walkable(col - 1, row) and
+                is_walkable(col, row + 1) and
+                is_walkable(col, row - 1)
+            )
+            if not neighbours_clear:
+                continue
+
+        #filter for valid placing locations
+        if dungeon_grid[row][col] != 0:
+            continue
+        if (col, row) not in reachable:
             continue
 
         px, py = grid_to_pixel(col, row)
-        spots.append((px, py))
+        spots.append((px, py, enemy_type))
 
     for spot in spots:
-        enemy_type = random.randint(0, len(ENEMY_DATA) - 1)
-        enemies.append(Enemy(spot[0], spot[1], enemy_type))
+        enemies.append(Enemy(spot[0], spot[1], spot[2]))
 
 def check_death():
     return player.wax <= 0
@@ -908,6 +932,30 @@ def draw_ASTAR(): #draws each enemy's A* path as connected by line segments
         # marker on the destination
         pygame.draw.circle(screen, colour, remaining[-1], 5, 2)
 
+def colour_door():
+        locked = len(enemies) > 0
+        for tile in solids_group:
+            if getattr(tile, "door", False):
+                tile.image.fill(DARK_BROWN if locked else BROWN)
+
+def find_reachable_tiles(start_col, start_row): #returns set of tiles reachable from start tile
+    reachable = set()
+    frontier = [(start_col, start_row)]
+
+    while frontier:
+        col, row = frontier.pop()
+        if (col, row) in reachable:
+            continue
+        if not is_walkable(col, row):
+            continue
+
+        reachable.add((col, row))
+        frontier.append((col + 1, row))
+        frontier.append((col - 1, row))
+        frontier.append((col, row + 1))
+        frontier.append((col, row - 1))
+
+    return reachable
 
 #initialise
 while True:
@@ -954,9 +1002,9 @@ while True:
         if not paused:
             update_timers()
             handle_spell_casting()
-            debug_reset()
             update_entities()
             check_collisions()
+            colour_door()
 
         draw_world()
         draw_hud()
@@ -967,6 +1015,7 @@ while True:
 
         if showDebug:
             draw_debug()
+            debug_reset()
             if showASTAR:
                 draw_ASTAR()
 
@@ -977,6 +1026,7 @@ while True:
 
         pygame.display.update()
         clock.tick(FPS)
+        
 
     while gameOver:
         for event in pygame.event.get():
